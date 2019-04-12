@@ -24,6 +24,10 @@ $(document).ready(function () {
     $('#createAppBundleActivity').click(createAppBundleActivity);
     $('#startWorkitem').click(startWorkitem);
 
+    $('#outputlog').on("click", '.btn-start-translation', startTranslation);
+    $('#outputlog').on("click", '.btn-get-manifest', getManifest);
+    $('#outputlog').on("click", '.btn-launch-viewer', launchViewer);
+
     startConnection();
 });
 
@@ -137,6 +141,45 @@ function startWorkitem() {
     });
 }
 
+function startTranslation(e) {
+    var urn = $(e.currentTarget).data('object-urn');
+
+    writeLog('Start translation: ' + urn);
+
+    jQuery.ajax({
+        url: 'api/forge/modelderivative/job',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            urn: urn
+        }),
+        success: function (res) {
+            writeLog('<button class="btn btn-primary btn-get-manifest" data-object-urn="' + urn + '" style="width: 200px;margin: 5px 0px;">Get Manifest</button>');
+        }
+    });
+}
+
+function getManifest(e) {
+
+    var urn = $(e.currentTarget).data('object-urn');
+
+    jQuery.ajax({
+        url: 'api/forge/modelderivative/manifest',
+        method: 'GET',
+        data: {
+            urn: urn
+        },
+        success: function (res) {
+            writeLog('Translation Status: ' + res.status + ', Progress: ' + res.progress);
+
+            if (res.status == 'success') {
+                writeLog('<button class="btn btn-primary btn-launch-viewer" data-object-urn="' + urn + '" style="width: 200px;margin: 5px 0px;">Launch Viewer</button>');
+                $('#launchViewer').click(launchViewer);
+            }
+        }
+    });
+}
+
 function writeLog(text) {
   $('#outputlog').append('<div style="border-top: 1px dashed #C0C0C0">' + text + '</div>');
   var elem = document.getElementById('outputlog');
@@ -164,5 +207,65 @@ function startConnection(onReady) {
 
     connection.on("onComplete", function (message) {
         writeLog(message);
+    });
+
+    connection.on("translateResult", function (urn) {
+        writeLog('<button class="btn btn-primary btn-start-translation" data-object-urn="' + urn + '" style="width: 200px;margin: 5px 0px;">Start Translation</button>');
+    });
+}
+
+var viewerApp;
+var viewerDeferred = new jQuery.Deferred();
+
+function launchViewer(e) {
+
+    var urn = $(e.currentTarget).data('object-urn');
+
+    writeLog('launchViewer: ' + urn);
+
+    var options = {
+        env: 'AutodeskProduction',
+        getAccessToken: getForgeToken
+    };
+
+    var documentId = 'urn:' + urn;
+
+    Autodesk.Viewing.Initializer(options, viewerDeferred.promise()
+        .then(function () {
+            viewerApp = new Autodesk.Viewing.ViewingApplication('forgeViewer');
+            viewerApp.registerViewer(viewerApp.k3D, Autodesk.Viewing.Private.GuiViewer3D);
+            viewerApp.loadDocument(documentId, onDocumentLoadSuccess, onDocumentLoadFailure);
+        })
+    );
+}
+
+function onDocumentLoadSuccess(doc) {
+    var viewables = viewerApp.bubble.search({ 'type': 'geometry' });
+    if (viewables.length === 0) {
+        console.error('Document contains no viewables.');
+        return;
+    }
+
+    viewerApp.selectItem(viewables[0].data, onItemLoadSuccess, onItemLoadFail);
+}
+
+function onDocumentLoadFailure(viewerErrorCode) {
+    console.error('onDocumentLoadFailure() - errorCode:' + viewerErrorCode);
+}
+
+function onItemLoadSuccess(viewer, item) {
+}
+
+function onItemLoadFail(errorCode) {
+    console.error('onItemLoadFail() - errorCode:' + errorCode);
+}
+
+function getForgeToken(callback) {
+    jQuery.ajax({
+        url: '/api/forge/oauth/token',
+        success: function (res) {
+            viewerDeferred.resolve();
+            callback(res.access_token, res.expires_in);
+        }
     });
 }

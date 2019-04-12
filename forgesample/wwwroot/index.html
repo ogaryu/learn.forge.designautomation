@@ -13,6 +13,9 @@
     <script src="//unpkg.com/@aspnet/signalr@1.1.0/dist/browser/signalr.min.js"></script>
     <!-- Files for this project -->
     <script src="/js/ForgeDesignAutomation.js"></script>
+    <!-- Autodesk Forge Viewer files -->
+    <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/6.*/style.min.css" type="text/css">
+    <script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/6.*/viewer3D.min.js"></script>
 </head>
 
 <body style="height: 100%;">
@@ -58,6 +61,11 @@
             </div>
             <div class="col-sm-8">
                 <pre id="outputlog" style="height: calc(100vh - 120px);; overflow-y: scroll;"></pre>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-12" style="height: calc(100vh - 120px)">
+                <div id="forgeViewer" style="position: absolute;width: 98%;height: 98%;margin: 0;background-color: #F0F8FF;border: 1px solid #ccc;border-radius: 4px;"></div>
             </div>
         </div>
     </div>

@@ -30,6 +30,7 @@ using RestSharp;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Linq;
 using System.Threading.Tasks;
 using Activity = Autodesk.Forge.DesignAutomation.Model.Activity;
@@ -303,7 +304,7 @@ namespace forgeSample.Controllers
             };
 
             // prepare & submit workitem
-            string callbackUrl = string.Format("{0}/api/forge/callback/designautomation?id={1}&outputFileName={2}", OAuthController.GetAppSetting("FORGE_WEBHOOK_URL"), browerConnectionId, outputFileNameOSS);
+            string callbackUrl = string.Format("{0}/api/forge/callback/designautomation?id={1}&outputFileName={2}&bucketKey={3}", OAuthController.GetAppSetting("FORGE_WEBHOOK_URL"), browerConnectionId, outputFileNameOSS, bucketKey);
             WorkItem workItemSpec = new WorkItem()
             {
                 ActivityId = activityName,
@@ -320,12 +321,12 @@ namespace forgeSample.Controllers
             return Ok(new { WorkItemId = workItemStatus.Id });
         }
 
-        /// <summary>
+        ///
         /// Callback from Design Automation Workitem (onProgress or onComplete)
-        /// </summary>
+        /// 
         [HttpPost]
         [Route("/api/forge/callback/designautomation")]
-        public async Task<IActionResult> OnCallback(string id, string outputFileName, [FromBody]dynamic body)
+        public async Task<IActionResult> OnCallback(string id, string outputFileName, string bucketKey, [FromBody]dynamic body)
         {
             try
             {
@@ -343,6 +344,13 @@ namespace forgeSample.Controllers
                 ObjectsApi objectsApi = new ObjectsApi();
                 dynamic signedUrl = await objectsApi.CreateSignedResourceAsyncWithHttpInfo(NickName.ToLower() + "_designautomation", outputFileName, new PostBucketsSigned(10), "read");
                 await _hubContext.Clients.Client(id).SendAsync("downloadResult", (string)(signedUrl.Data.signedUrl));
+
+                dynamic objectDetail = await objectsApi.GetObjectDetailsAsyncWithHttpInfo(bucketKey, outputFileName);
+                Encoding encoding = Encoding.UTF8;
+                string objectUrn = (string)(objectDetail.Data.objectId);
+                byte[] bytes = encoding.GetBytes(objectUrn);
+                string urn = System.Convert.ToBase64String(bytes);
+                await _hubContext.Clients.Client(id).SendAsync("translateResult", urn);
             }
             catch (Exception e) { }
 
@@ -388,6 +396,46 @@ namespace forgeSample.Controllers
             // this folder is placed under the public folder, which may expose the bundles
             // but it was defined this way so it be published on most hosts easily
             return Directory.GetFiles(LocalBundlesFolder, "*.zip").Select(Path.GetFileNameWithoutExtension).ToArray();
+        }
+
+        [HttpPost]
+        [HttpPost]
+        [Route("api/forge/modelderivative/job")]
+        public async Task<IActionResult> StartTranslation([FromBody]JObject translateSpecs)
+        {
+            string urn = translateSpecs["urn"].Value<string>();
+
+            dynamic oauth = await OAuthController.GetInternalAsync();
+
+            List<JobPayloadItem> outputs = new List<JobPayloadItem>()
+    {
+        new JobPayloadItem(
+            JobPayloadItem.TypeEnum.Svf,
+            new List<JobPayloadItem.ViewsEnum>()
+            {
+            JobPayloadItem.ViewsEnum._2d,
+            JobPayloadItem.ViewsEnum._3d
+            })
+    };
+            JobPayload job;
+            job = new JobPayload(new JobPayloadInput(urn), new JobPayloadOutput(outputs));
+
+            // start the translation
+            DerivativesApi derivative = new DerivativesApi();
+            derivative.Configuration.AccessToken = oauth.access_token;
+            dynamic jobPosted = await derivative.TranslateAsync(job);
+
+            return Ok();
+        }
+
+        [HttpGet]
+        [Route("api/forge/modelderivative/manifest")]
+        public async Task<IActionResult> GetManifest([FromQuery]string urn)
+        {
+            DerivativesApi derivative = new DerivativesApi();
+            dynamic result = await derivative.GetManifestAsyncWithHttpInfo(urn);
+
+            return Ok(new { Status = (string)result.Data.status, Progress = (string)result.Data.progress });
         }
     }
 
